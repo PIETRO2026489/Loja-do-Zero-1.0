@@ -4,24 +4,7 @@ import json
 import os
 import math
 import time
-from dataclasses import dataclass, field, asdict
-
-# ============================================================
-# LOJA DO ZERO - SIMULADOR DE SUPERMERCADO
-# ============================================================
-#
-# CONTROLES
-# ------------------------------------------------------------
-# WASD / SETAS = andar
-# E            = interagir / atender
-# C            = pegar/devolver carrinho
-# 1-8          = menus
-# F5           = salvar
-# F9           = carregar
-# F11          = tela cheia
-# ESC          = pausa / voltar
-#
-# ============================================================
+from dataclasses import dataclass, field
 
 pygame.init()
 
@@ -74,11 +57,14 @@ def safe_save_path():
     )
 
     try:
+
         os.makedirs(
             folder,
             exist_ok=True
         )
+
     except OSError:
+
         folder = os.path.dirname(
             os.path.abspath(__file__)
         )
@@ -101,7 +87,9 @@ screen = pygame.display.set_mode(
     pygame.FULLSCREEN | pygame.SCALED
 )
 
-pygame.display.set_caption("Loja do Zero")
+pygame.display.set_caption(
+    "Loja do Zero"
+)
 
 clock = pygame.time.Clock()
 
@@ -306,6 +294,7 @@ UPGRADE_ORDER = list(UPGRADES)
 # ============================================================
 
 LEVEL_NAMES = {
+
     1: "Mercadinho",
     2: "Loja de Bairro",
     3: "Supermercado",
@@ -314,6 +303,7 @@ LEVEL_NAMES = {
 }
 
 LEVEL_REVENUE = {
+
     1: 0,
     2: 500,
     3: 1800,
@@ -322,6 +312,7 @@ LEVEL_REVENUE = {
 }
 
 LEVEL_CUSTOMERS = {
+
     1: 3,
     2: 5,
     3: 8,
@@ -333,12 +324,13 @@ MAX_LEVEL = 5
 MAX_STOCK = 50
 
 THEFT_TIMEOUT = 20.0
+
 PLAYER_SPEED = 190.0
 CUSTOMER_SPAWN = 4.0
 
 
 # ============================================================
-# CLIENTES
+# TIPOS DE CLIENTE
 # ============================================================
 
 CUSTOMER_TYPES = {
@@ -401,6 +393,20 @@ EVENTS = {
 
 
 # ============================================================
+# DECORAÇÕES
+# ============================================================
+
+DECORATION_ITEMS = [
+
+    ("Planta", GREEN, 80),
+    ("Tapete", RED, 140),
+    ("Sofá", PURPLE, 220),
+    ("Aquário", CYAN, 300),
+    ("Neon", PINK, 400),
+]
+
+
+# ============================================================
 # CLIENTE
 # ============================================================
 
@@ -434,11 +440,6 @@ class Customer:
     service_time: float = 0.0
 
     stolen: bool = False
-
-    quote_timer: float = 0.0
-
-    def to_dict(self):
-        return asdict(self)
 
 
 # ============================================================
@@ -485,6 +486,7 @@ class Store:
         ]
 
         for pid in self.unlocked:
+
             self.inventory[pid] = 6
 
         self.upgrades = {
@@ -500,6 +502,7 @@ class Store:
         self.event_time = 0.0
 
         self.missions = {
+
             "first_sale": False,
             "fifty_customers": False,
             "level_3": False,
@@ -509,6 +512,7 @@ class Store:
         }
 
         self.achievements = {
+
             "first_customer": False,
             "100_sales": False,
             "1000_revenue": False,
@@ -533,6 +537,11 @@ class Store:
 
         self.tutorial_done = False
 
+        # Estado de cada caixa.
+        # Sempre existe pelo menos um caixa manual.
+        self.checkout_open = [True]
+
+
     def money_text(self):
 
         return (
@@ -542,17 +551,22 @@ class Store:
             .replace("X", ".")
         )
 
+
     def product_name(self, pid):
+
         return PRODUCTS[pid][0]
+
 
     def buy_price(self, pid):
 
         price = PRODUCTS[pid][1]
 
         if self.active_event == "supplier":
+
             price *= 0.70
 
         return price
+
 
     def sell_price(self, pid):
 
@@ -562,9 +576,11 @@ class Store:
             self.active_event == "promo"
             and pid in self.unlocked[:3]
         ):
+
             price *= 1.15
 
         return price
+
 
     def stock_limit(self):
 
@@ -573,12 +589,14 @@ class Store:
             + self.upgrades["stock"] * 10
         )
 
+
     def customer_capacity(self):
 
         return (
             LEVEL_CUSTOMERS[self.level]
             + self.upgrades["space"]
         )
+
 
     def shelf_count(self):
 
@@ -588,6 +606,7 @@ class Store:
             + (self.level - 1) * 2
         )
 
+
     def spawn_speed(self):
 
         value = (
@@ -596,9 +615,11 @@ class Store:
         )
 
         if self.active_event == "rush":
+
             value *= 1.9
 
         return value
+
 
     def checkout_speed(self):
 
@@ -608,35 +629,98 @@ class Store:
             + self.employee_count("cashier") * 0.10
         )
 
+
     def employee_count(self, kind):
 
         return sum(
-            employee == kind
-            for employee in self.employees
+            e == kind
+            for e in self.employees
         )
 
-    # --------------------------------------------------------
-    # ESTOQUE
-    # --------------------------------------------------------
 
-    def buy_stock(self, pid, amount):
+    def active_checkout_count(self):
+
+        return sum(
+            bool(v)
+            for v in self.checkout_open
+        )
+
+
+    def ensure_checkout_slots(self):
+
+        required = max(
+            1,
+            1 + self.employee_count("cashier")
+        )
+
+        required = min(
+            3,
+            required
+        )
+
+        while len(self.checkout_open) < required:
+
+            self.checkout_open.append(
+                True
+            )
+
+        if len(self.checkout_open) > required:
+
+            self.checkout_open = (
+                self.checkout_open[:required]
+            )
+
+        if not self.checkout_open:
+
+            self.checkout_open = [True]
+
+
+    # ========================================================
+    # ESTOQUE
+    # ========================================================
+
+    def buy_stock(
+        self,
+        pid,
+        amount
+    ):
 
         if pid not in PRODUCTS:
-            return False, "Produto inválido."
+
+            return (
+                False,
+                "Produto inválido."
+            )
 
         if amount <= 0:
-            return False, "Quantidade inválida."
+
+            return (
+                False,
+                "Quantidade inválida."
+            )
 
         if (
-            self.inventory[pid] + amount
+            self.inventory[pid]
+            + amount
             > self.stock_limit()
         ):
-            return False, "Limite de estoque atingido."
 
-        cost = self.buy_price(pid) * amount
+            return (
+                False,
+                "Limite de estoque atingido."
+            )
+
+        cost = (
+            self.buy_price(pid)
+            * amount
+        )
 
         if self.money < cost:
-            return False, "Dinheiro insuficiente."
+
+            return (
+                False,
+                "Dinheiro insuficiente."
+            )
 
         self.money -= cost
 
@@ -651,14 +735,26 @@ class Store:
             f"Comprou {amount}x {self.product_name(pid)}."
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # VENDAS
-    # --------------------------------------------------------
+    # ========================================================
 
     def sell_one(self, pid):
 
-        if self.inventory.get(pid, 0) <= 0:
-            return False, 0, 0
+        if (
+            self.inventory.get(
+                pid,
+                0
+            )
+            <= 0
+        ):
+
+            return (
+                False,
+                0,
+                0
+            )
 
         self.inventory[pid] -= 1
 
@@ -688,7 +784,9 @@ class Store:
             )
         )
 
-        self.history = self.history[-100:]
+        self.history = (
+            self.history[-100:]
+        )
 
         self.check_progression()
 
@@ -698,9 +796,10 @@ class Store:
             profit
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # PROGRESSÃO
-    # --------------------------------------------------------
+    # ========================================================
 
     def check_progression(self):
 
@@ -708,7 +807,9 @@ class Store:
             self.level < MAX_LEVEL
             and
             self.total_revenue
-            >= LEVEL_REVENUE[self.level + 1]
+            >= LEVEL_REVENUE[
+                self.level + 1
+            ]
         ):
 
             self.level += 1
@@ -720,6 +821,8 @@ class Store:
 
             unlock_products()
 
+            self.ensure_checkout_slots()
+
             notify(
                 f"NOVO NÍVEL: {LEVEL_NAMES[self.level]}!",
                 GREEN,
@@ -727,11 +830,13 @@ class Store:
             )
 
         self.check_missions()
+
         self.check_achievements()
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # UPGRADES
-    # --------------------------------------------------------
+    # ========================================================
 
     def upgrade_cost(self, key):
 
@@ -740,22 +845,39 @@ class Store:
             * (1.35 ** self.upgrades[key])
         )
 
+
     def buy_upgrade(self, key):
 
         if key not in UPGRADES:
-            return False, "Upgrade inválido."
 
-        if self.upgrades[key] >= UPGRADES[key][2]:
-            return False, "Esse upgrade já está no máximo."
+            return (
+                False,
+                "Upgrade inválido."
+            )
+
+        if (
+            self.upgrades[key]
+            >= UPGRADES[key][2]
+        ):
+
+            return (
+                False,
+                "Esse upgrade já está no máximo."
+            )
 
         cost = self.upgrade_cost(key)
 
         if self.money < cost:
-            return False, "Dinheiro insuficiente."
+
+            return (
+                False,
+                "Dinheiro insuficiente."
+            )
 
         self.money -= cost
 
         self.total_profit -= cost
+
         self.today_expenses += cost
 
         self.upgrades[key] += 1
@@ -770,35 +892,65 @@ class Store:
             f"{UPGRADES[key][0]} melhorado!"
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # FUNCIONÁRIOS
-    # --------------------------------------------------------
+    # ========================================================
 
     def hire(self, kind):
 
         if kind not in EMPLOYEES:
-            return False, "Funcionário inválido."
 
-        name, price, salary, color, desc = EMPLOYEES[kind]
+            return (
+                False,
+                "Funcionário inválido."
+            )
+
+        (
+            name,
+            price,
+            salary,
+            color,
+            description
+        ) = EMPLOYEES[kind]
 
         max_count = (
             5
-            if kind in ("cashier", "stock")
+            if kind in (
+                "cashier",
+                "stock"
+            )
             else 2
         )
 
-        if self.employee_count(kind) >= max_count:
-            return False, "Limite desse funcionário atingido."
+        if (
+            self.employee_count(kind)
+            >= max_count
+        ):
+
+            return (
+                False,
+                "Limite desse funcionário atingido."
+            )
 
         if self.money < price:
-            return False, "Dinheiro insuficiente."
+
+            return (
+                False,
+                "Dinheiro insuficiente."
+            )
 
         self.money -= price
 
         self.total_profit -= price
+
         self.today_expenses += price
 
-        self.employees.append(kind)
+        self.employees.append(
+            kind
+        )
+
+        self.ensure_checkout_slots()
 
         self.satisfaction = min(
             100,
@@ -806,6 +958,7 @@ class Store:
         )
 
         if kind == "security":
+
             self.reputation = min(
                 100,
                 self.reputation + 2
@@ -818,13 +971,16 @@ class Store:
             f"{name} contratado."
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # QUALIDADE
-    # --------------------------------------------------------
+    # ========================================================
 
     def update_quality(self, dt):
 
-        cleaner = self.employee_count("cleaner")
+        cleaner = self.employee_count(
+            "cleaner"
+        )
 
         self.cleanliness += (
             dt
@@ -864,10 +1020,12 @@ class Store:
         )
 
         if self.active_event == "happy":
+
             target += 10
 
         self.satisfaction += (
-            target - self.satisfaction
+            target
+            - self.satisfaction
         ) * dt * 0.08
 
         self.satisfaction = max(
@@ -878,13 +1036,16 @@ class Store:
             )
         )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # TEMPO
-    # --------------------------------------------------------
+    # ========================================================
 
     def update_time(self, dt):
 
-        self.hour += dt / 20.0
+        self.hour += (
+            dt / 20.0
+        )
 
         if self.hour >= 23:
 
@@ -905,23 +1066,27 @@ class Store:
             self.event_time -= dt
 
             if self.event_time <= 0:
+
                 self.active_event = None
 
         elif random.random() < dt * 0.002:
 
             start_random_event()
 
+
     def payroll(self):
 
         total = 0
 
         for kind in self.employees:
+
             total += EMPLOYEES[kind][2]
 
         total *= max(
             0.7,
             1
-            - self.employee_count("manager") * 0.04
+            - self.employee_count("manager")
+            * 0.04
         )
 
         self.money = max(
@@ -931,9 +1096,10 @@ class Store:
 
         self.total_profit -= total
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # MISSÕES
-    # --------------------------------------------------------
+    # ========================================================
 
     def check_missions(self):
 
@@ -970,7 +1136,11 @@ class Store:
 
         for key, done in targets.items():
 
-            if done and not self.missions[key]:
+            if (
+                done
+                and
+                not self.missions[key]
+            ):
 
                 self.missions[key] = True
 
@@ -982,9 +1152,10 @@ class Store:
                     3.5
                 )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # CONQUISTAS
-    # --------------------------------------------------------
+    # ========================================================
 
     def check_achievements(self):
 
@@ -1006,7 +1177,8 @@ class Store:
                 len(self.employees) >= 1,
 
             "all_products":
-                len(self.unlocked) == len(PRODUCTS),
+                len(self.unlocked)
+                == len(PRODUCTS),
 
             "mega_store":
                 self.level >= 4,
@@ -1023,7 +1195,11 @@ class Store:
 
         for key, value in conditions.items():
 
-            if value and not self.achievements[key]:
+            if (
+                value
+                and
+                not self.achievements[key]
+            ):
 
                 self.achievements[key] = True
 
@@ -1033,49 +1209,91 @@ class Store:
                     4
                 )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # SAVE
-    # --------------------------------------------------------
+    # ========================================================
 
     def to_dict(self):
 
         return {
 
-            "money": self.money,
-            "level": self.level,
+            "money":
+                self.money,
 
-            "total_revenue": self.total_revenue,
-            "total_profit": self.total_profit,
+            "level":
+                self.level,
 
-            "total_sales": self.total_sales,
-            "total_customers": self.total_customers,
-            "customers_served": self.customers_served,
+            "total_revenue":
+                self.total_revenue,
 
-            "stolen_items": self.stolen_items,
-            "thefts": self.thefts,
-            "security_alerts": self.security_alerts,
+            "total_profit":
+                self.total_profit,
 
-            "reputation": self.reputation,
-            "satisfaction": self.satisfaction,
-            "cleanliness": self.cleanliness,
+            "total_sales":
+                self.total_sales,
 
-            "day": self.day,
-            "hour": self.hour,
+            "total_customers":
+                self.total_customers,
 
-            "inventory": self.inventory,
-            "unlocked": self.unlocked,
+            "customers_served":
+                self.customers_served,
 
-            "upgrades": self.upgrades,
-            "employees": self.employees,
+            "stolen_items":
+                self.stolen_items,
 
-            "decorations": self.decorations,
+            "thefts":
+                self.thefts,
 
-            "missions": self.missions,
-            "achievements": self.achievements,
+            "security_alerts":
+                self.security_alerts,
 
-            "carts_in_store": self.carts_in_store,
-            "tutorial_done": self.tutorial_done,
+            "reputation":
+                self.reputation,
+
+            "satisfaction":
+                self.satisfaction,
+
+            "cleanliness":
+                self.cleanliness,
+
+            "day":
+                self.day,
+
+            "hour":
+                self.hour,
+
+            "inventory":
+                self.inventory,
+
+            "unlocked":
+                self.unlocked,
+
+            "upgrades":
+                self.upgrades,
+
+            "employees":
+                self.employees,
+
+            "decorations":
+                self.decorations,
+
+            "missions":
+                self.missions,
+
+            "achievements":
+                self.achievements,
+
+            "carts_in_store":
+                self.carts_in_store,
+
+            "tutorial_done":
+                self.tutorial_done,
+
+            "checkout_open":
+                self.checkout_open,
         }
+
 
     def load(self, data):
 
@@ -1084,6 +1302,7 @@ class Store:
         for key in current:
 
             if key in data:
+
                 setattr(
                     self,
                     key,
@@ -1099,6 +1318,7 @@ class Store:
         )
 
         self.inventory = {
+
             pid:
                 max(
                     0,
@@ -1109,26 +1329,33 @@ class Store:
                         )
                     )
                 )
+
             for pid in PRODUCTS
         }
 
         self.unlocked = [
+
             pid
             for pid in self.unlocked
+
             if pid in PRODUCTS
         ]
 
         if not self.unlocked:
 
             self.unlocked = [
+
                 pid
+
                 for pid in PRODUCTS
+
                 if PRODUCTS[pid][3] == 1
             ]
 
         unlock_products()
 
         self.upgrades = {
+
             key:
                 max(
                     0,
@@ -1142,25 +1369,33 @@ class Store:
                         )
                     )
                 )
+
             for key in UPGRADES
         }
 
         self.employees = [
+
             employee
+
             for employee in self.employees
+
             if employee in EMPLOYEES
         ]
 
         self.carts_in_store = max(
             0,
-            int(self.carts_in_store)
+            int(
+                self.carts_in_store
+            )
         )
 
         self.reputation = max(
             0,
             min(
                 100,
-                float(self.reputation)
+                float(
+                    self.reputation
+                )
             )
         )
 
@@ -1168,7 +1403,9 @@ class Store:
             0,
             min(
                 100,
-                float(self.satisfaction)
+                float(
+                    self.satisfaction
+                )
             )
         )
 
@@ -1176,9 +1413,13 @@ class Store:
             0,
             min(
                 100,
-                float(self.cleanliness)
+                float(
+                    self.cleanliness
+                )
             )
         )
+
+        self.ensure_checkout_slots()
 
 
 store = Store()
@@ -1196,9 +1437,8 @@ customers = []
 
 customer_id = 0
 
-# POSIÇÃO INICIAL
-player_x = 180.0
-player_y = 500.0
+player_x = 170.0
+player_y = 485.0
 
 carrying_cart = False
 
@@ -1264,7 +1504,10 @@ def center_text(
     surface.blit(
         rendered,
         (
-            (WIDTH - rendered.get_width()) // 2,
+            (
+                WIDTH
+                - rendered.get_width()
+            ) // 2,
             int(y)
         )
     )
@@ -1328,16 +1571,25 @@ def button(
     rendered = font.render(
         label,
         True,
-        LIGHT if disabled else WHITE
+        LIGHT
+        if disabled
+        else WHITE
     )
 
     screen.blit(
         rendered,
         (
             rect[0]
-            + (rect[2] - rendered.get_width()) / 2,
+            + (
+                rect[2]
+                - rendered.get_width()
+            ) / 2,
+
             rect[1]
-            + (rect[3] - rendered.get_height()) / 2
+            + (
+                rect[3]
+                - rendered.get_height()
+            ) / 2
         )
     )
 
@@ -1428,7 +1680,9 @@ def draw_notifications():
         color,
         seconds
     ) in enumerate(
-        reversed(message_queue[-4:])
+        reversed(
+            message_queue[-4:]
+        )
     ):
 
         panel(
@@ -1485,7 +1739,7 @@ def update_notifications(dt):
 
 
 # ============================================================
-# MAPA
+# MAPA / HITBOX
 # ============================================================
 
 def store_rect():
@@ -1516,27 +1770,61 @@ def store_rect():
 
 def shelf_rects():
 
-    rects = []
+    """
+    As prateleiras ficam somente na esquerda.
+    A área direita é reservada aos caixas.
+    """
 
-    cols = (
-        5
-        if store.level < 4
-        else 6
-    )
+    r = store_rect()
 
-    rows = (
-        2
-        if store.level == 1
-        else
-        3
-        if store.level < 4
-        else
-        4
-    )
+    if store.level == 1:
+
+        cols = 4
+        rows = 2
+
+    elif store.level == 2:
+
+        cols = 5
+        rows = 2
+
+    elif store.level == 3:
+
+        cols = 5
+        rows = 3
+
+    elif store.level == 4:
+
+        cols = 6
+        rows = 3
+
+    else:
+
+        cols = 6
+        rows = 4
 
     count = min(
         store.shelf_count(),
         cols * rows
+    )
+
+    rects = []
+
+    start_x = (
+        r.left
+        + 90
+    )
+
+    start_y = (
+        r.top
+        + 115
+    )
+
+    spacing_x = 145
+    spacing_y = 90
+
+    checkout_zone_left = (
+        r.right
+        - 235
     )
 
     for i in range(count):
@@ -1544,37 +1832,57 @@ def shelf_rects():
         col = i % cols
         row = i // cols
 
-        x = 125 + col * 160
-        y = 220 + row * 90
+        x = start_x + col * spacing_x
+        y = start_y + row * spacing_y
 
-        rects.append(
-            pygame.Rect(
-                x,
-                y,
-                126,
-                58
-            )
+        rect = pygame.Rect(
+            x,
+            y,
+            126,
+            58
         )
+
+        # Não deixa a prateleira entrar
+        # no corredor dos caixas.
+        if rect.right <= checkout_zone_left:
+
+            rects.append(
+                rect
+            )
 
     return rects
 
 
 def cashier_rects():
 
+    store.ensure_checkout_slots()
+
     r = store_rect()
 
     count = min(
         3,
-        1 + store.employee_count("cashier")
+        len(
+            store.checkout_open
+        )
+    )
+
+    checkout_x = (
+        r.right
+        - 165
+    )
+
+    checkout_y = (
+        r.top
+        + 110
     )
 
     return [
 
         pygame.Rect(
-            r.right - 190,
-            r.y + 100 + i * 100,
-            140,
-            78
+            checkout_x,
+            checkout_y + i * 105,
+            125,
+            72
         )
 
         for i in range(count)
@@ -1598,8 +1906,17 @@ def player_rect(
     y=None
 ):
 
-    px = player_x if x is None else x
-    py = player_y if y is None else y
+    px = (
+        player_x
+        if x is None
+        else x
+    )
+
+    py = (
+        player_y
+        if y is None
+        else y
+    )
 
     return pygame.Rect(
         int(px - 14),
@@ -1609,11 +1926,10 @@ def player_rect(
     )
 
 
-# ============================================================
-# MOVIMENTO - CORREÇÃO DEFINITIVA
-# ============================================================
-
-def can_walk(x, y):
+def can_walk(
+    x,
+    y
+):
 
     r = store_rect()
 
@@ -1622,66 +1938,99 @@ def can_walk(x, y):
         y
     )
 
-    # Limites diretos.
-    #
-    # NÃO usamos inflate().contains() aqui.
-    # O jogador pode andar por praticamente todo o piso.
-    #
-    left_limit = r.left + 25
-    right_limit = r.right - 25
+    # --------------------------------------------------------
+    # LIMITES EXTERNOS
+    # --------------------------------------------------------
 
-    top_limit = r.top + 100
-    bottom_limit = r.bottom - 25
+    if player.left < r.left + 18:
 
-    if player.left < left_limit:
         return False
 
-    if player.right > right_limit:
+    if player.right > r.right - 18:
+
         return False
 
-    if player.top < top_limit:
+    if player.top < r.top + 88:
+
         return False
 
-    if player.bottom > bottom_limit:
+    if player.bottom > r.bottom - 18:
+
         return False
 
-    # Colisão com prateleiras
+    # --------------------------------------------------------
+    # PRATELEIRAS
+    # --------------------------------------------------------
+
     for obstacle in shelf_rects():
 
         if player.colliderect(
-            obstacle.inflate(8, 8)
+            obstacle.inflate(
+                5,
+                5
+            )
         ):
+
             return False
 
-    # Colisão com caixas
+    # --------------------------------------------------------
+    # CAIXAS
+    # --------------------------------------------------------
+
     for obstacle in cashier_rects():
 
         if player.colliderect(
-            obstacle.inflate(8, 8)
+            obstacle.inflate(
+                5,
+                5
+            )
         ):
+
             return False
 
     return True
 
 
-def reset_player_position():
+def find_free_player_position():
 
-    global player_x
-    global player_y
-
-    # Testamos posições até encontrar
-    # uma realmente livre.
+    r = store_rect()
 
     positions = [
 
-        (180, 500),
-        (100, 500),
-        (300, 500),
-        (450, 500),
-        (550, 500),
-        (100, 450),
-        (300, 450),
-        (500, 450),
+        (
+            r.left + 140,
+            r.bottom - 55
+        ),
+
+        (
+            r.left + 180,
+            r.bottom - 55
+        ),
+
+        (
+            r.left + 250,
+            r.bottom - 55
+        ),
+
+        (
+            r.left + 360,
+            r.bottom - 55
+        ),
+
+        (
+            r.right - 300,
+            r.bottom - 70
+        ),
+
+        (
+            r.right - 250,
+            r.top + 400
+        ),
+
+        (
+            r.right - 250,
+            r.top + 300
+        ),
     ]
 
     for x, y in positions:
@@ -1691,33 +2040,55 @@ def reset_player_position():
             y
         ):
 
-            player_x = float(x)
-            player_y = float(y)
+            return (
+                float(x),
+                float(y)
+            )
 
-            return
+    return (
+        float(
+            r.left + 140
+        ),
+        float(
+            r.bottom - 55
+        )
+    )
 
-    # Fallback
-    r = store_rect()
 
-    player_x = r.left + 60
-    player_y = r.bottom - 60
-
-
-def move_player(dx, dy, dt):
+def reset_player_position():
 
     global player_x
     global player_y
 
-    if dx == 0 and dy == 0:
+    (
+        player_x,
+        player_y
+    ) = find_free_player_position()
+
+
+def move_player(
+    dx,
+    dy,
+    dt
+):
+
+    global player_x
+    global player_y
+
+    if (
+        dx == 0
+        and
+        dy == 0
+    ):
+
         return
 
-    # Normalização diagonal
     length = math.hypot(
         dx,
         dy
     )
 
-    if length > 0:
+    if length:
 
         dx /= length
         dy /= length
@@ -1727,8 +2098,12 @@ def move_player(dx, dy, dt):
         * dt
     )
 
-    # Primeiro X
-    new_x = player_x + dx * amount
+    # Eixo X
+    new_x = (
+        player_x
+        + dx
+        * amount
+    )
 
     if can_walk(
         new_x,
@@ -1737,8 +2112,12 @@ def move_player(dx, dy, dt):
 
         player_x = new_x
 
-    # Depois Y
-    new_y = player_y + dy * amount
+    # Eixo Y
+    new_y = (
+        player_y
+        + dy
+        * amount
+    )
 
     if can_walk(
         player_x,
@@ -1749,204 +2128,7 @@ def move_player(dx, dy, dt):
 
 
 # ============================================================
-# SAVE
-# ============================================================
-
-def save_game():
-
-    try:
-
-        data = store.to_dict()
-
-        data.update({
-
-            "player_x": player_x,
-            "player_y": player_y,
-            "carrying_cart": carrying_cart,
-        })
-
-        with open(
-            SAVE_FILE,
-            "w",
-            encoding="utf-8"
-        ) as file:
-
-            json.dump(
-                data,
-                file,
-                ensure_ascii=False,
-                indent=2
-            )
-
-        store.last_autosave = 0
-
-        notify(
-            "Jogo salvo!",
-            GREEN,
-            2
-        )
-
-        return True
-
-    except Exception as error:
-
-        print(
-            "Erro ao salvar:",
-            error
-        )
-
-        notify(
-            "Erro ao salvar o jogo.",
-            RED,
-            3
-        )
-
-        return False
-
-
-# ============================================================
-# LOAD
-# ============================================================
-
-def load_game():
-
-    global store
-    global player_x
-    global player_y
-    global carrying_cart
-    global selected_product
-    global customer_id
-    global last_spawn
-
-    if not os.path.exists(
-        SAVE_FILE
-    ):
-
-        notify(
-            "Nenhum jogo salvo.",
-            RED,
-            3
-        )
-
-        return False
-
-    try:
-
-        with open(
-            SAVE_FILE,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            data = json.load(file)
-
-        store.load(data)
-
-        player_x = float(
-            data.get(
-                "player_x",
-                180
-            )
-        )
-
-        player_y = float(
-            data.get(
-                "player_y",
-                500
-            )
-        )
-
-        carrying_cart = bool(
-            data.get(
-                "carrying_cart",
-                False
-            )
-        )
-
-        # Se o save antigo guardou posição ruim,
-        # coloca o jogador novamente na loja.
-        if not can_walk(
-            player_x,
-            player_y
-        ):
-
-            reset_player_position()
-
-        if store.unlocked:
-
-            selected_product = (
-                store.unlocked[0]
-            )
-
-        customers.clear()
-
-        customer_id = 0
-
-        last_spawn = time.monotonic()
-
-        notify(
-            "Jogo carregado!",
-            GREEN,
-            3
-        )
-
-        return True
-
-    except Exception as error:
-
-        print(
-            "Erro ao carregar:",
-            error
-        )
-
-        notify(
-            "Save inválido.",
-            RED,
-            3
-        )
-
-        return False
-
-
-# ============================================================
-# TELA CHEIA
-# ============================================================
-
-def toggle_fullscreen():
-
-    global FULLSCREEN
-    global screen
-
-    FULLSCREEN = not FULLSCREEN
-
-    flags = (
-        pygame.FULLSCREEN | pygame.SCALED
-        if FULLSCREEN
-        else pygame.SCALED
-    )
-
-    screen = pygame.display.set_mode(
-        (
-            WIDTH,
-            HEIGHT
-        ),
-        flags
-    )
-
-    notify(
-        (
-            "Tela cheia ativada."
-            if FULLSCREEN
-            else
-            "Modo janela ativado."
-        ),
-        CYAN,
-        2
-    )
-
-
-# ============================================================
-# PRODUTOS
+# PRODUTOS / PRATELEIRAS
 # ============================================================
 
 def unlock_products():
@@ -1977,17 +2159,23 @@ def unlock_products():
             )
 
 
-def shelf_product(index):
+def shelf_product(
+    index
+):
 
     if not store.unlocked:
+
         return "apple"
 
     return store.unlocked[
-        index % len(store.unlocked)
+        index
+        % len(store.unlocked)
     ]
 
 
-def shelf_for_product(pid):
+def shelf_for_product(
+    pid
+):
 
     shelves = shelf_rects()
 
@@ -2004,6 +2192,7 @@ def shelf_for_product(pid):
             return shelves[index]
 
     if shelves:
+
         return shelves[0]
 
     return pygame.Rect(
@@ -2021,10 +2210,8 @@ def draw_product_icon(
     scale=1.0
 ):
 
-    info = PRODUCTS[pid]
-
-    color = info[4]
-    category = info[5]
+    color = PRODUCTS[pid][4]
+    category = PRODUCTS[pid][5]
 
     size = max(
         7,
@@ -2038,7 +2225,10 @@ def draw_product_icon(
         pygame.draw.circle(
             screen,
             color,
-            (cx, cy),
+            (
+                cx,
+                cy
+            ),
             size
         )
 
@@ -2215,8 +2405,11 @@ def draw_shelf(
 def available_products():
 
     return [
+
         pid
+
         for pid in store.unlocked
+
         if store.inventory.get(
             pid,
             0
@@ -2243,20 +2436,32 @@ def customer_kind():
     return "family"
 
 
-def make_basket(kind):
+def make_basket(
+    kind
+):
 
     options = available_products()
 
     if not options:
+
         return []
 
     limits = {
 
-        "normal": (2, 3),
-        "hurry": (1, 2),
-        "big": (3, 6),
-        "cheap": (2, 4),
-        "family": (4, 6),
+        "normal":
+            (2, 3),
+
+        "hurry":
+            (1, 2),
+
+        "big":
+            (3, 6),
+
+        "cheap":
+            (2, 4),
+
+        "family":
+            (4, 6),
     }
 
     low, high = limits[kind]
@@ -2273,8 +2478,12 @@ def make_basket(kind):
     )
 
     return [
+
         random.choice(options)
-        for _ in range(number)
+
+        for _ in range(
+            number
+        )
     ]
 
 
@@ -2283,21 +2492,24 @@ def spawn_customer():
     global customer_id
     global last_spawn
 
-    if len(customers) >= store.customer_capacity():
+    if (
+        len(customers)
+        >= store.customer_capacity()
+    ):
+
         return
-
-    basket = make_basket(
-        customer_kind()
-    )
-
-    if not basket:
-        return
-
-    customer_id += 1
 
     kind = customer_kind()
 
-    color, speed, patience = CUSTOMER_TYPES[kind]
+    basket = make_basket(
+        kind
+    )
+
+    if not basket:
+
+        return
+
+    customer_id += 1
 
     customer = Customer(
         customer_id,
@@ -2307,13 +2519,12 @@ def spawn_customer():
     )
 
     customer.basket = basket
-    customer.target_product = basket[0]
-    customer.patience = patience
 
-    customer.quote_timer = random.uniform(
-        3,
-        9
-    )
+    customer.target_product = basket[0]
+
+    customer.patience = CUSTOMER_TYPES[
+        kind
+    ][2]
 
     customers.append(
         customer
@@ -2340,8 +2551,15 @@ def move_to(
     speed_mult=1.0
 ):
 
-    dx = x - customer.x
-    dy = y - customer.y
+    dx = (
+        x
+        - customer.x
+    )
+
+    dy = (
+        y
+        - customer.y
+    )
 
     distance = math.hypot(
         dx,
@@ -2349,6 +2567,7 @@ def move_to(
     )
 
     if distance <= 5:
+
         return True
 
     speed = (
@@ -2374,41 +2593,74 @@ def move_to(
     return False
 
 
-def choose_shelf_position(pid):
-
-    shelf = shelf_for_product(pid)
-
-    return (
-        shelf.centerx,
-        shelf.centery - 24
-    )
-
-
-def checkout_position(index=0):
+def choose_open_checkout_for_customer():
 
     cashiers = cashier_rects()
 
-    if not cashiers:
+    open_indices = [
 
-        return (
-            store_rect().right - 120,
-            store_rect().y + 180
+        i
+
+        for i in range(
+            len(cashiers)
         )
 
-    rect = cashiers[
-        min(
-            index,
-            len(cashiers) - 1
-        )
+        if store.checkout_open[i]
     ]
 
-    return (
-        rect.centerx,
-        rect.centery + 60
+    if not open_indices:
+
+        return None
+
+    return random.choice(
+        open_indices
     )
 
 
-def customer_take_item(customer):
+def checkout_position(
+    index=0
+):
+
+    cashiers = cashier_rects()
+
+    open_indices = [
+
+        i
+
+        for i in range(
+            len(cashiers)
+        )
+
+        if store.checkout_open[i]
+    ]
+
+    if open_indices:
+
+        index = open_indices[
+            min(
+                index,
+                len(open_indices) - 1
+            )
+        ]
+
+        rect = cashiers[index]
+
+        return (
+            rect.centerx,
+            rect.bottom + 35
+        )
+
+    r = store_rect()
+
+    return (
+        r.right - 255,
+        r.bottom - 75
+    )
+
+
+def customer_take_item(
+    customer
+):
 
     pid = customer.target_product
 
@@ -2422,9 +2674,12 @@ def customer_take_item(customer):
     ):
 
         choices = [
-            product
-            for product in available_products()
-            if product not in customer.held_items
+
+            p
+
+            for p in available_products()
+
+            if p not in customer.held_items
         ]
 
         if choices:
@@ -2435,37 +2690,39 @@ def customer_take_item(customer):
 
             customer.state = "shopping"
 
-            return
+        else:
 
-        customer.state = "leaving"
+            customer.state = "leaving"
 
         return
 
     store.inventory[pid] -= 1
 
-    customer.held_items.append(pid)
+    customer.held_items.append(
+        pid
+    )
 
-    if len(customer.held_items) >= len(customer.basket):
+    if (
+        len(customer.held_items)
+        >= len(customer.basket)
+    ):
 
         customer.state = "to_checkout"
-
-        (
-            customer.target_x,
-            customer.target_y
-        ) = checkout_position(0)
 
     else:
 
         remaining = [
 
-            product
+            p
 
-            for product in customer.basket[
-                len(customer.held_items):
+            for p in customer.basket[
+                len(
+                    customer.held_items
+                ):
             ]
 
             if store.inventory.get(
-                product,
+                p,
                 0
             ) > 0
         ]
@@ -2473,24 +2730,26 @@ def customer_take_item(customer):
         if remaining:
 
             customer.target_product = remaining[0]
+
             customer.state = "shopping"
 
         else:
 
             customer.state = "to_checkout"
 
-            (
-                customer.target_x,
-                customer.target_y
-            ) = checkout_position(0)
-
 
 def checkout_has_cashier():
 
-    return store.employee_count("cashier") > 0
+    return (
+        store.employee_count(
+            "cashier"
+        ) > 0
+    )
 
 
-def service_customer(customer):
+def service_customer(
+    customer
+):
 
     if not customer.held_items:
 
@@ -2500,22 +2759,23 @@ def service_customer(customer):
 
     total = 0
 
-    for pid in list(customer.held_items):
+    for pid in list(
+        customer.held_items
+    ):
 
-        ok, revenue, item_profit = (
+        ok, revenue, profit = (
             store.sell_one(pid)
         )
 
         if ok:
+
             total += revenue
+
+    customer.held_items = []
 
     if total > 0:
 
         store.customers_served += 1
-
-        customer.held_items = []
-
-        customer.state = "leaving"
 
         notify(
             f"Venda de {money(total)} realizada!",
@@ -2523,12 +2783,12 @@ def service_customer(customer):
             1.7
         )
 
-    else:
-
-        customer.state = "leaving"
+    customer.state = "leaving"
 
 
-def steal_customer(customer):
+def steal_customer(
+    customer
+):
 
     if not customer.held_items:
 
@@ -2536,33 +2796,35 @@ def steal_customer(customer):
 
         return
 
-    stolen_items = list(
+    items = list(
         customer.held_items
     )
 
-    stolen = len(
-        stolen_items
-    )
+    stolen = len(items)
 
-    guard_count = store.employee_count(
+    guards = store.employee_count(
         "security"
     )
 
     if (
-        guard_count
+        guards
         and
         random.random()
         < min(
             0.95,
-            0.65 + guard_count * 0.12
+            0.65
+            + guards * 0.12
         )
     ):
 
-        for pid in stolen_items:
+        for pid in items:
 
             store.inventory[pid] = min(
                 store.stock_limit(),
-                store.inventory.get(pid, 0) + 1
+                store.inventory.get(
+                    pid,
+                    0
+                ) + 1
             )
 
         store.security_alerts += 1
@@ -2580,11 +2842,8 @@ def steal_customer(customer):
         return
 
     store.thefts += 1
-    store.stolen_items += stolen
 
-    customer.stolen = True
-    customer.held_items = []
-    customer.state = "leaving"
+    store.stolen_items += stolen
 
     store.reputation = max(
         0,
@@ -2596,6 +2855,10 @@ def steal_customer(customer):
         store.satisfaction - 2
     )
 
+    customer.held_items = []
+
+    customer.state = "leaving"
+
     notify(
         f"Um cliente furtou {stolen} item(ns)!",
         RED,
@@ -2603,7 +2866,9 @@ def steal_customer(customer):
     )
 
 
-def update_customers(dt):
+def update_customers(
+    dt
+):
 
     remove_ids = []
 
@@ -2613,18 +2878,16 @@ def update_customers(dt):
 
             customer.state = "shopping"
 
-            customer.target_product = customer.basket[0]
-
         elif customer.state == "shopping":
 
-            tx, ty = choose_shelf_position(
+            shelf = shelf_for_product(
                 customer.target_product
             )
 
             if move_to(
                 customer,
-                tx,
-                ty,
+                shelf.centerx,
+                shelf.centery - 24,
                 dt
             ):
 
@@ -2634,24 +2897,45 @@ def update_customers(dt):
 
         elif customer.state == "to_checkout":
 
-            tx, ty = checkout_position(0)
+            open_index = (
+                choose_open_checkout_for_customer()
+            )
 
-            if move_to(
-                customer,
-                tx,
-                ty,
-                dt,
-                store.checkout_speed()
-            ):
+            if open_index is None:
 
-                customer.state = "checkout"
-                customer.checkout_wait = 0
+                # Sem caixa aberto.
+                # O cliente espera dentro da loja.
+                customer.checkout_wait += (
+                    dt * 0.25
+                )
+
+            else:
+
+                tx, ty = checkout_position(
+                    open_index
+                )
+
+                if move_to(
+                    customer,
+                    tx,
+                    ty,
+                    dt,
+                    store.checkout_speed()
+                ):
+
+                    customer.state = "checkout"
+
+                    customer.checkout_wait = 0
 
         elif customer.state == "checkout":
 
             customer.checkout_wait += dt
 
-            if checkout_has_cashier():
+            if (
+                checkout_has_cashier()
+                and
+                store.active_checkout_count() > 0
+            ):
 
                 customer.service_time -= (
                     dt
@@ -2666,7 +2950,10 @@ def update_customers(dt):
                         customer
                     )
 
-            elif customer.checkout_wait >= THEFT_TIMEOUT:
+            elif (
+                customer.checkout_wait
+                >= THEFT_TIMEOUT
+            ):
 
                 steal_customer(
                     customer
@@ -2674,13 +2961,14 @@ def update_customers(dt):
 
         elif customer.state == "leaving":
 
-            customer.x += 80 * dt
-
-            out_x = (
-                store_rect().right + 80
+            customer.x += (
+                80 * dt
             )
 
-            if customer.x > out_x:
+            if (
+                customer.x
+                > store_rect().right + 80
+            ):
 
                 remove_ids.append(
                     customer.cid
@@ -2689,13 +2977,19 @@ def update_customers(dt):
     if remove_ids:
 
         customers[:] = [
-            customer
-            for customer in customers
-            if customer.cid not in remove_ids
+
+            c
+
+            for c in customers
+
+            if c.cid
+            not in remove_ids
         ]
 
 
-def draw_customer(customer):
+def draw_customer(
+    customer
+):
 
     color = CUSTOMER_TYPES[
         customer.kind
@@ -2774,7 +3068,8 @@ def draw_customer(customer):
 
         remaining = max(
             0,
-            THEFT_TIMEOUT - customer.checkout_wait
+            THEFT_TIMEOUT
+            - customer.checkout_wait
         )
 
         bar(
@@ -2801,7 +3096,10 @@ def draw_customer(customer):
 # DESENHO
 # ============================================================
 
-def draw_cart(cx, cy):
+def draw_cart(
+    cx,
+    cy
+):
 
     pygame.draw.rect(
         screen,
@@ -2853,21 +3151,23 @@ def draw_cart(cx, cy):
 
 def draw_store_background():
 
-    screen.fill(SKY)
+    screen.fill(
+        SKY
+    )
 
-    rect = store_rect()
+    r = store_rect()
 
     pygame.draw.rect(
         screen,
         WALL,
-        rect,
+        r,
         border_radius=18
     )
 
     pygame.draw.rect(
         screen,
         OUTLINE,
-        rect,
+        r,
         3,
         border_radius=18
     )
@@ -2876,10 +3176,10 @@ def draw_store_background():
         screen,
         FLOOR,
         (
-            rect.x,
-            rect.y + 85,
-            rect.w,
-            rect.h - 85
+            r.x,
+            r.y + 85,
+            r.w,
+            r.h - 85
         ),
         border_radius=10
     )
@@ -2888,9 +3188,9 @@ def draw_store_background():
         screen,
         (75, 68, 80),
         (
-            rect.x,
-            rect.y,
-            rect.w,
+            r.x,
+            r.y,
+            r.w,
             78
         ),
         border_radius=18
@@ -2900,9 +3200,9 @@ def draw_store_background():
         screen,
         (55, 50, 60),
         (
-            rect.x + 15,
-            rect.y + 13,
-            rect.w - 30,
+            r.x + 15,
+            r.y + 13,
+            r.w - 30,
             45
         ),
         border_radius=10
@@ -2911,8 +3211,8 @@ def draw_store_background():
     text(
         screen,
         "LOJA DO ZERO",
-        rect.x + 35,
-        rect.y + 20,
+        r.x + 35,
+        r.y + 20,
         YELLOW,
         BIG
     )
@@ -2920,16 +3220,16 @@ def draw_store_background():
     text(
         screen,
         LEVEL_NAMES[store.level],
-        rect.x + 300,
-        rect.y + 27,
+        r.x + 300,
+        r.y + 27,
         WHITE,
         BIG
     )
 
     for i in range(5):
 
-        window_x = (
-            rect.right
+        wx = (
+            r.right
             - 390
             + i * 67
         )
@@ -2938,8 +3238,8 @@ def draw_store_background():
             screen,
             (160, 210, 225),
             (
-                window_x,
-                rect.y + 17,
+                wx,
+                r.y + 17,
                 52,
                 35
             ),
@@ -2950,8 +3250,8 @@ def draw_store_background():
             screen,
             WHITE,
             (
-                window_x,
-                rect.y + 17,
+                wx,
+                r.y + 17,
                 52,
                 35
             ),
@@ -2960,8 +3260,8 @@ def draw_store_background():
         )
 
     for floor_y in range(
-        rect.y + 100,
-        rect.bottom,
+        r.y + 100,
+        r.bottom,
         45
     ):
 
@@ -2969,11 +3269,11 @@ def draw_store_background():
             screen,
             (214, 199, 165),
             (
-                rect.x + 2,
+                r.x + 2,
                 floor_y
             ),
             (
-                rect.right - 2,
+                r.right - 2,
                 floor_y
             ),
             1
@@ -2992,11 +3292,25 @@ def draw_shelves():
         )
 
 
-def draw_checkout(index, rect):
+def draw_checkout(
+    index,
+    rect
+):
+
+    is_open = (
+        store.checkout_open[index]
+        if index < len(
+            store.checkout_open
+        )
+        else True
+    )
 
     pygame.draw.rect(
         screen,
-        WOOD,
+        WOOD
+        if is_open
+        else
+        (90, 88, 88),
         rect,
         border_radius=8
     )
@@ -3023,11 +3337,10 @@ def draw_checkout(index, rect):
 
     pygame.draw.rect(
         screen,
-        (
-            GREEN
-            if checkout_has_cashier()
-            else RED
-        ),
+        GREEN
+        if is_open
+        else
+        RED,
         (
             rect.x + 25,
             rect.y + 42,
@@ -3040,35 +3353,52 @@ def draw_checkout(index, rect):
     text(
         screen,
         f"CAIXA {index + 1}",
-        rect.x + 42,
-        rect.y + 84,
+        rect.x + 25,
+        rect.y + 82,
         WHITE,
+        SMALL
+    )
+
+    text(
+        screen,
+        "ABERTO"
+        if is_open
+        else
+        "FECHADO",
+        rect.x + 30,
+        rect.y - 24,
+        GREEN
+        if is_open
+        else
+        RED,
         SMALL
     )
 
     if (
         index == 0
         and
-        store.employee_count("cashier") == 0
+        store.employee_count(
+            "cashier"
+        ) == 0
     ):
 
         text(
             screen,
-            "SEM CAIXA",
-            rect.x + 27,
-            rect.y - 20,
-            RED,
-            SMALL
+            "MANUAL",
+            rect.x + 80,
+            rect.y + 82,
+            CYAN,
+            TINY
         )
 
 
 def draw_entrance():
 
-    rect = store_rect()
+    r = store_rect()
 
     entrance = pygame.Rect(
-        rect.x + 15,
-        rect.bottom - 75,
+        r.x + 15,
+        r.bottom - 75,
         95,
         54
     )
@@ -3140,7 +3470,6 @@ def draw_entrance():
 
 def draw_player():
 
-    # Personagem
     pygame.draw.circle(
         screen,
         BLUE,
@@ -3162,7 +3491,6 @@ def draw_player():
         2
     )
 
-    # Marcador acima
     pygame.draw.rect(
         screen,
         CYAN,
@@ -3175,7 +3503,6 @@ def draw_player():
         border_radius=2
     )
 
-    # Carrinho
     if carrying_cart:
 
         draw_cart(
@@ -3265,7 +3592,9 @@ def draw_store_hud():
         f"Furtos {store.thefts}",
         635,
         15,
-        RED if store.thefts else WHITE,
+        RED
+        if store.thefts
+        else WHITE,
         SMALL
     )
 
@@ -3367,13 +3696,21 @@ def draw_bottom_menu():
     options = [
 
         ("1 Loja", 10, 100),
+
         ("2 Estoque", 115, 105),
+
         ("3 Upgrades", 225, 120),
+
         ("4 Equipe", 350, 105),
+
         ("5 Missões", 460, 110),
+
         ("6 Conquistas", 575, 125),
+
         ("7 Decoração", 705, 125),
+
         ("8 Estatísticas", 835, 125),
+
         ("ESC Pausa", 965, 110),
     ]
 
@@ -3426,7 +3763,18 @@ def draw_store():
 
     draw_bottom_menu()
 
-    if store.employee_count("cashier") == 0:
+    text(
+        screen,
+        "E = atender   F = abrir/fechar caixa   C = carrinho",
+        45,
+        675,
+        WHITE,
+        TINY
+    )
+
+    if store.employee_count(
+        "cashier"
+    ) == 0:
 
         panel(
             (
@@ -3455,7 +3803,7 @@ def draw_store():
 
         text(
             screen,
-            "Aproxime-se do caixa e aperte E",
+            "E atende • F abre/fecha o caixa",
             60,
             134,
             WHITE,
@@ -3464,7 +3812,7 @@ def draw_store():
 
         text(
             screen,
-            "ou contrate um caixa em 4 Equipe",
+            "Feche um caixa para controlar o atendimento",
             60,
             153,
             WHITE,
@@ -3483,8 +3831,8 @@ def draw_store():
         )
 
     waiting = sum(
-        customer.state == "checkout"
-        for customer in customers
+        c.state == "checkout"
+        for c in customers
     )
 
     if waiting:
@@ -3500,7 +3848,7 @@ def draw_store():
 
 
 # ============================================================
-# INTERAÇÃO
+# INTERAÇÃO COM CAIXA
 # ============================================================
 
 def nearest_cashier():
@@ -3508,6 +3856,7 @@ def nearest_cashier():
     cashiers = cashier_rects()
 
     if not cashiers:
+
         return None
 
     return min(
@@ -3520,11 +3869,35 @@ def nearest_cashier():
     )
 
 
-def manual_service():
+def cashier_index_from_rect(
+    target
+):
+
+    cashiers = cashier_rects()
+
+    for i, rect in enumerate(
+        cashiers
+    ):
+
+        if rect == target:
+
+            return i
+
+    return None
+
+
+def toggle_cashier():
 
     rect = nearest_cashier()
 
-    if not rect:
+    if rect is None:
+
+        notify(
+            "Nenhum caixa disponível.",
+            RED,
+            2
+        )
+
         return
 
     distance = math.hypot(
@@ -3532,36 +3905,116 @@ def manual_service():
         player_y - rect.bottom
     )
 
-    if distance > 110:
+    if distance > 125:
 
         notify(
             "Chegue mais perto do caixa.",
             GRAY,
-            1.6
+            1.5
+        )
+
+        return
+
+    index = cashier_index_from_rect(
+        rect
+    )
+
+    if index is None:
+
+        return
+
+    store.ensure_checkout_slots()
+
+    store.checkout_open[index] = not (
+        store.checkout_open[index]
+    )
+
+    status = (
+        "ABERTO"
+        if store.checkout_open[index]
+        else
+        "FECHADO"
+    )
+
+    notify(
+        f"Caixa {index + 1}: {status}.",
+        GREEN
+        if status == "ABERTO"
+        else RED,
+        2
+    )
+
+
+def manual_service():
+
+    rect = nearest_cashier()
+
+    if rect is None:
+
+        notify(
+            "Nenhum caixa disponível.",
+            RED,
+            2
+        )
+
+        return
+
+    distance = math.hypot(
+        player_x - rect.centerx,
+        player_y - rect.bottom
+    )
+
+    if distance > 125:
+
+        notify(
+            "Chegue mais perto do caixa.",
+            GRAY,
+            1.5
+        )
+
+        return
+
+    index = cashier_index_from_rect(
+        rect
+    )
+
+    if index is None:
+
+        return
+
+    if not store.checkout_open[index]:
+
+        notify(
+            "Este caixa está fechado. Use F para abrir.",
+            RED,
+            2
         )
 
         return
 
     candidates = [
-        customer
-        for customer in customers
-        if customer.state == "checkout"
+
+        c
+
+        for c in customers
+
+        if c.state == "checkout"
     ]
 
     if not candidates:
 
         notify(
-            "Não há ninguém na fila.",
+            "Não há clientes esperando.",
             GRAY,
-            1.7
+            1.5
         )
 
         return
 
     customer = max(
         candidates,
-        key=lambda item:
-        item.checkout_wait
+        key=lambda c:
+        c.checkout_wait
     )
 
     service_customer(
@@ -3589,19 +4042,20 @@ def interact():
         ):
 
             if not carrying_cart:
+
                 store.carts_in_store -= 1
+
             else:
+
                 store.carts_in_store += 1
 
             carrying_cart = not carrying_cart
 
             notify(
-                (
-                    "Carrinho pego."
-                    if carrying_cart
-                    else
-                    "Carrinho devolvido."
-                ),
+                "Carrinho pego."
+                if carrying_cart
+                else
+                "Carrinho devolvido.",
                 CYAN,
                 1.5
             )
@@ -3612,13 +4066,220 @@ def interact():
 
 
 # ============================================================
+# SAVE
+# ============================================================
+
+def save_game():
+
+    try:
+
+        data = store.to_dict()
+
+        data.update({
+
+            "player_x":
+                player_x,
+
+            "player_y":
+                player_y,
+
+            "carrying_cart":
+                carrying_cart,
+        })
+
+        with open(
+            SAVE_FILE,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            json.dump(
+                data,
+                file,
+                ensure_ascii=False,
+                indent=2
+            )
+
+        store.last_autosave = 0
+
+        notify(
+            "Jogo salvo!",
+            GREEN,
+            2
+        )
+
+        return True
+
+    except Exception as error:
+
+        print(
+            "Erro ao salvar:",
+            error
+        )
+
+        notify(
+            "Erro ao salvar o jogo.",
+            RED,
+            3
+        )
+
+        return False
+
+
+# ============================================================
+# LOAD
+# ============================================================
+
+def load_game():
+
+    global store
+    global player_x
+    global player_y
+    global carrying_cart
+    global selected_product
+    global customer_id
+    global last_spawn
+
+    if not os.path.exists(
+        SAVE_FILE
+    ):
+
+        notify(
+            "Nenhum jogo salvo.",
+            RED,
+            3
+        )
+
+        return False
+
+    try:
+
+        with open(
+            SAVE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            data = json.load(file)
+
+        store.load(
+            data
+        )
+
+        player_x = float(
+            data.get(
+                "player_x",
+                170
+            )
+        )
+
+        player_y = float(
+            data.get(
+                "player_y",
+                485
+            )
+        )
+
+        carrying_cart = bool(
+            data.get(
+                "carrying_cart",
+                False
+            )
+        )
+
+        if not can_walk(
+            player_x,
+            player_y
+        ):
+
+            reset_player_position()
+
+        selected_product = (
+            store.unlocked[0]
+            if store.unlocked
+            else
+            "apple"
+        )
+
+        customers.clear()
+
+        customer_id = 0
+
+        last_spawn = time.monotonic()
+
+        notify(
+            "Jogo carregado!",
+            GREEN,
+            3
+        )
+
+        return True
+
+    except Exception as error:
+
+        print(
+            "Erro ao carregar:",
+            error
+        )
+
+        notify(
+            "Save inválido.",
+            RED,
+            3
+        )
+
+        return False
+
+
+# ============================================================
+# TELA CHEIA
+# ============================================================
+
+def toggle_fullscreen():
+
+    global FULLSCREEN
+    global screen
+
+    FULLSCREEN = not FULLSCREEN
+
+    flags = (
+        pygame.FULLSCREEN
+        | pygame.SCALED
+        if FULLSCREEN
+        else
+        pygame.SCALED
+    )
+
+    screen = pygame.display.set_mode(
+        (
+            WIDTH,
+            HEIGHT
+        ),
+        flags
+    )
+
+    notify(
+        "Tela cheia ativada."
+        if FULLSCREEN
+        else
+        "Modo janela ativado.",
+        CYAN,
+        2
+    )
+
+
+# ============================================================
 # MENU
 # ============================================================
 
 def draw_menu():
 
     screen.fill(
-        (22, 27, 38)
+        (
+            22,
+            27,
+            38
+        )
     )
 
     center_text(
@@ -3754,7 +4415,7 @@ def draw_tutorial():
         (
             "1",
             "Ande pela loja",
-            "Use WASD ou as setas para caminhar."
+            "Use WASD ou as setas."
         ),
 
         (
@@ -3766,19 +4427,19 @@ def draw_tutorial():
         (
             "3",
             "Atenda",
-            "No começo não há caixa automático."
+            "E atende o cliente perto do caixa."
         ),
 
         (
             "4",
-            "Cuidado com furtos",
-            "20 segundos sem atendimento podem gerar furto."
+            "Abra e feche caixas",
+            "F alterna entre ABERTO e FECHADO."
         ),
 
         (
             "5",
             "Contrate equipe",
-            "Caixa, repositor, faxineiro e segurança."
+            "Caixas e outros funcionários automatizam a loja."
         ),
     ]
 
@@ -3786,7 +4447,9 @@ def draw_tutorial():
         number,
         title,
         description
-    ) in enumerate(steps):
+    ) in enumerate(
+        steps
+    ):
 
         y = 155 + index * 82
 
@@ -3878,7 +4541,7 @@ def draw_inventory():
 
     text(
         screen,
-        f"Limite por produto: {store.stock_limit()}",
+        f"Limite: {store.stock_limit()}",
         980,
         87,
         WHITE,
@@ -3898,7 +4561,10 @@ def draw_inventory():
 
     max_page = max(
         0,
-        (len(items) - 1) // per_page
+        (
+            len(items) - 1
+        )
+        // per_page
     )
 
     draw_inventory.page = max(
@@ -3911,10 +4577,14 @@ def draw_inventory():
 
     visible = items[
         draw_inventory.page * per_page:
-        (draw_inventory.page + 1) * per_page
+        (
+            draw_inventory.page + 1
+        ) * per_page
     ]
 
-    for index, pid in enumerate(visible):
+    for index, pid in enumerate(
+        visible
+    ):
 
         col = index % 2
         row = index // 2
@@ -3922,7 +4592,9 @@ def draw_inventory():
         x = 35 + col * 610
         y = 125 + row * 100
 
-        name, buy, sell, level, color, category = PRODUCTS[pid]
+        name, buy, sell, level, color, category = (
+            PRODUCTS[pid]
+        )
 
         panel(
             (
@@ -4043,11 +4715,15 @@ def draw_upgrades():
 
     for key in UPGRADE_ORDER:
 
-        name, base, max_level, description = UPGRADES[key]
+        name, base, max_level, description = (
+            UPGRADES[key]
+        )
 
         level = store.upgrades[key]
 
-        cost = store.upgrade_cost(key)
+        cost = store.upgrade_cost(
+            key
+        )
 
         panel(
             (
@@ -4095,7 +4771,8 @@ def draw_upgrades():
         label = (
             "MÁXIMO"
             if level >= max_level
-            else f"Comprar {money(cost)}"
+            else
+            f"Comprar {money(cost)}"
         )
 
         button(
@@ -4119,7 +4796,7 @@ def draw_upgrades():
 
     text(
         screen,
-        "1-8 comprar upgrade • ESC volta",
+        "1-8 comprar upgrade • ESC voltar",
         35,
         680,
         LIGHT,
@@ -4153,13 +4830,24 @@ def draw_employees():
 
     for key in EMPLOYEE_ORDER:
 
-        name, price, salary, color, description = EMPLOYEES[key]
+        (
+            name,
+            price,
+            salary,
+            color,
+            description
+        ) = EMPLOYEES[key]
 
-        count = store.employee_count(key)
+        count = store.employee_count(
+            key
+        )
 
         max_count = (
             5
-            if key in ("cashier", "stock")
+            if key in (
+                "cashier",
+                "stock"
+            )
             else 2
         )
 
@@ -4228,7 +4916,8 @@ def draw_employees():
         label = (
             "MÁXIMO"
             if count >= max_count
-            else f"Contratar {money(price)}"
+            else
+            f"Contratar {money(price)}"
         )
 
         button(
@@ -4252,7 +4941,7 @@ def draw_employees():
 
     text(
         screen,
-        "1-5 contratar • ESC volta",
+        "1-5 contratar • ESC voltar",
         35,
         675,
         LIGHT,
@@ -4284,21 +4973,83 @@ def draw_stats():
 
     data = [
 
-        ("Dinheiro", store.money_text(), YELLOW),
-        ("Receita", money(store.total_revenue), GREEN),
-        ("Lucro", money(store.total_profit), MINT),
+        (
+            "Dinheiro",
+            store.money_text(),
+            YELLOW
+        ),
 
-        ("Vendas", store.total_sales, CYAN),
-        ("Clientes", store.total_customers, BLUE),
-        ("Atendidos", store.customers_served, GREEN),
+        (
+            "Receita",
+            money(
+                store.total_revenue
+            ),
+            GREEN
+        ),
 
-        ("Furtos", store.thefts, RED),
-        ("Itens furtados", store.stolen_items, RED),
-        ("Reputação", f"{store.reputation:.1f}", PURPLE),
+        (
+            "Lucro",
+            money(
+                store.total_profit
+            ),
+            MINT
+        ),
 
-        ("Satisfação", f"{store.satisfaction:.1f}%", GREEN),
-        ("Limpeza", f"{store.cleanliness:.1f}%", CYAN),
-        ("Caixas", store.employee_count("cashier"), BLUE),
+        (
+            "Vendas",
+            store.total_sales,
+            CYAN
+        ),
+
+        (
+            "Clientes",
+            store.total_customers,
+            BLUE
+        ),
+
+        (
+            "Atendidos",
+            store.customers_served,
+            GREEN
+        ),
+
+        (
+            "Furtos",
+            store.thefts,
+            RED
+        ),
+
+        (
+            "Itens furtados",
+            store.stolen_items,
+            RED
+        ),
+
+        (
+            "Reputação",
+            f"{store.reputation:.1f}",
+            PURPLE
+        ),
+
+        (
+            "Satisfação",
+            f"{store.satisfaction:.1f}%",
+            GREEN
+        ),
+
+        (
+            "Limpeza",
+            f"{store.cleanliness:.1f}%",
+            CYAN
+        ),
+
+        (
+            "Caixas",
+            store.employee_count(
+                "cashier"
+            ),
+            BLUE
+        ),
     ]
 
     for index, (
@@ -4310,8 +5061,15 @@ def draw_stats():
         col = index % 3
         row = index // 3
 
-        x = 35 + col * 410
-        y = 95 + row * 88
+        x = (
+            35
+            + col * 410
+        )
+
+        y = (
+            95
+            + row * 88
+        )
 
         panel(
             (
@@ -4381,12 +5139,41 @@ def draw_missions():
 
     missions = [
 
-        ("Primeira venda", store.total_sales >= 1, 50),
-        ("50 clientes", store.total_customers >= 50, 150),
-        ("Nível 3", store.level >= 3, 400),
-        ("Primeiro funcionário", len(store.employees) >= 1, 180),
-        ("10 produtos", len(store.unlocked) >= 10, 500),
-        ("Nível 5", store.level >= 5, 1500),
+        (
+            "Primeira venda",
+            store.total_sales >= 1,
+            50
+        ),
+
+        (
+            "50 clientes",
+            store.total_customers >= 50,
+            150
+        ),
+
+        (
+            "Nível 3",
+            store.level >= 3,
+            400
+        ),
+
+        (
+            "Primeiro funcionário",
+            len(store.employees) >= 1,
+            180
+        ),
+
+        (
+            "10 produtos",
+            len(store.unlocked) >= 10,
+            500
+        ),
+
+        (
+            "Nível 5",
+            store.level >= 5,
+            1500
+        ),
     ]
 
     y = 110
@@ -4411,10 +5198,16 @@ def draw_missions():
 
         text(
             screen,
-            "OK" if done else "--",
+            "OK"
+            if done
+            else
+            "--",
             70,
             y + 17,
-            GREEN if done else YELLOW,
+            GREEN
+            if done
+            else
+            YELLOW,
             BIG
         )
 
@@ -4528,16 +5321,24 @@ def draw_achievements():
                 42,
                 48
             ),
-            GOLD if done else OUTLINE,
+            GOLD
+            if done
+            else OUTLINE,
             2
         )
 
         text(
             screen,
-            "[OK]" if done else "[ ]",
+            "[OK]"
+            if done
+            else
+            "[ ]",
             70,
             y + 14,
-            GOLD if done else GRAY,
+            GOLD
+            if done
+            else
+            GRAY,
             SMALL
         )
 
@@ -4546,7 +5347,10 @@ def draw_achievements():
             name,
             120,
             y + 14,
-            GOLD if done else WHITE,
+            GOLD
+            if done
+            else
+            WHITE,
             FONT
         )
 
@@ -4566,22 +5370,23 @@ def draw_achievements():
 # DECORAÇÃO
 # ============================================================
 
-DECORATION_ITEMS = [
+def buy_decoration(
+    index
+):
 
-    ("Planta", GREEN, 80),
-    ("Tapete", RED, 140),
-    ("Sofá", PURPLE, 220),
-    ("Aquário", CYAN, 300),
-    ("Neon", PINK, 400),
-]
+    if (
+        index < 0
+        or
+        index >= len(
+            DECORATION_ITEMS
+        )
+    ):
 
-
-def buy_decoration(index):
-
-    if index < 0 or index >= len(DECORATION_ITEMS):
         return
 
-    name, color, price = DECORATION_ITEMS[index]
+    name, color, price = (
+        DECORATION_ITEMS[index]
+    )
 
     if store.money < price:
 
@@ -4596,6 +5401,7 @@ def buy_decoration(index):
     store.money -= price
 
     store.total_profit -= price
+
     store.today_expenses += price
 
     store.decorations.append(
@@ -4645,7 +5451,10 @@ def draw_decor():
         DECORATION_ITEMS
     ):
 
-        y = 120 + index * 88
+        y = (
+            120
+            + index * 88
+        )
 
         panel(
             (
@@ -4886,13 +5695,12 @@ def start_random_event():
 # ESTOQUE
 # ============================================================
 
-def buy_selected_stock(amount):
+def buy_selected_stock(
+    amount
+):
 
-    if (
-        not store.unlocked
-        or
-        selected_product not in store.unlocked
-    ):
+    if not store.unlocked:
+
         return
 
     ok, msg = store.buy_stock(
@@ -4902,7 +5710,9 @@ def buy_selected_stock(amount):
 
     notify(
         msg,
-        GREEN if ok else RED,
+        GREEN
+        if ok
+        else RED,
         2
     )
 
@@ -4929,12 +5739,14 @@ def start_new_game():
 
     customer_id = 0
 
-    player_x = 180.0
-    player_y = 500.0
+    player_x = 170.0
+    player_y = 485.0
 
     carrying_cart = False
 
-    selected_product = store.unlocked[0]
+    selected_product = (
+        store.unlocked[0]
+    )
 
     last_spawn = time.monotonic()
 
@@ -4946,7 +5758,7 @@ def start_new_game():
 
 
 # ============================================================
-# VOLTAR MENU
+# VOLTAR AO MENU
 # ============================================================
 
 def return_to_menu():
@@ -4962,7 +5774,9 @@ def return_to_menu():
 # TECLADO
 # ============================================================
 
-def handle_key(event):
+def handle_key(
+    event
+):
 
     global state
     global running
@@ -5018,6 +5832,7 @@ def handle_key(event):
         elif key == pygame.K_2:
 
             if load_game():
+
                 state = "store"
 
         elif key in (
@@ -5037,13 +5852,10 @@ def handle_key(event):
 
             store.tutorial_done = True
 
-            reset_player_position()
-
             state = "store"
 
-        # CORREÇÃO EXTRA:
-        # Se o jogador apertar WASD/setas no tutorial,
-        # o jogo já começa imediatamente.
+            reset_player_position()
+
         elif key in (
             pygame.K_w,
             pygame.K_a,
@@ -5066,27 +5878,35 @@ def handle_key(event):
     elif state == "store":
 
         if key == pygame.K_1:
+
             state = "store"
 
         elif key == pygame.K_2:
+
             state = "inventory"
 
         elif key == pygame.K_3:
+
             state = "upgrades"
 
         elif key == pygame.K_4:
+
             state = "employees"
 
         elif key == pygame.K_5:
+
             state = "missions"
 
         elif key == pygame.K_6:
+
             state = "achievements"
 
         elif key == pygame.K_7:
+
             state = "decor"
 
         elif key == pygame.K_8:
+
             state = "stats"
 
         elif key == pygame.K_ESCAPE:
@@ -5096,6 +5916,10 @@ def handle_key(event):
         elif key == pygame.K_e:
 
             interact()
+
+        elif key == pygame.K_f:
+
+            toggle_cashier()
 
         elif key == pygame.K_c:
 
@@ -5149,31 +5973,49 @@ def handle_key(event):
 
         elif key == pygame.K_a:
 
-            index = store.unlocked.index(
-                selected_product
-            )
+            if store.unlocked:
 
-            selected_product = store.unlocked[
-                (index - 1) % len(store.unlocked)
-            ]
+                index = store.unlocked.index(
+                    selected_product
+                )
+
+                selected_product = store.unlocked[
+                    (
+                        index - 1
+                    )
+                    % len(
+                        store.unlocked
+                    )
+                ]
 
         elif key == pygame.K_d:
 
-            index = store.unlocked.index(
-                selected_product
-            )
+            if store.unlocked:
 
-            selected_product = store.unlocked[
-                (index + 1) % len(store.unlocked)
-            ]
+                index = store.unlocked.index(
+                    selected_product
+                )
+
+                selected_product = store.unlocked[
+                    (
+                        index + 1
+                    )
+                    % len(
+                        store.unlocked
+                    )
+                ]
 
         elif key == pygame.K_q:
 
-            buy_selected_stock(5)
+            buy_selected_stock(
+                5
+            )
 
         elif key == pygame.K_w:
 
-            buy_selected_stock(10)
+            buy_selected_stock(
+                10
+            )
 
         elif key == pygame.K_z:
 
@@ -5183,7 +6025,8 @@ def handle_key(event):
                     draw_inventory,
                     "page",
                     0
-                ) - 1
+                )
+                - 1
             )
 
         elif key == pygame.K_x:
@@ -5193,7 +6036,8 @@ def handle_key(event):
                     draw_inventory,
                     "page",
                     0
-                ) + 1
+                )
+                + 1
             )
 
     # --------------------------------------------------------
@@ -5208,21 +6052,23 @@ def handle_key(event):
 
         elif pygame.K_1 <= key <= pygame.K_8:
 
-            index = (
-                key - pygame.K_1
-            )
+            index = key - pygame.K_1
 
-            if index < len(UPGRADE_ORDER):
+            if index < len(
+                UPGRADE_ORDER
+            ):
 
-                key_name = UPGRADE_ORDER[index]
-
-                ok, msg = store.buy_upgrade(
-                    key_name
+                ok, msg = (
+                    store.buy_upgrade(
+                        UPGRADE_ORDER[index]
+                    )
                 )
 
                 notify(
                     msg,
-                    GREEN if ok else RED,
+                    GREEN
+                    if ok
+                    else RED,
                     2
                 )
 
@@ -5238,19 +6084,17 @@ def handle_key(event):
 
         elif pygame.K_1 <= key <= pygame.K_5:
 
-            index = (
-                key - pygame.K_1
-            )
-
-            employee_type = EMPLOYEE_ORDER[index]
+            index = key - pygame.K_1
 
             ok, msg = store.hire(
-                employee_type
+                EMPLOYEE_ORDER[index]
             )
 
             notify(
                 msg,
-                GREEN if ok else RED,
+                GREEN
+                if ok
+                else RED,
                 2.5
             )
 
@@ -5329,11 +6173,14 @@ def handle_key(event):
 # MOUSE
 # ============================================================
 
-def handle_mouse(pos):
+def handle_mouse(
+    pos
+):
 
     global state
 
     if state != "store":
+
         return
 
     x, y = pos
@@ -5342,19 +6189,62 @@ def handle_mouse(pos):
 
         choices = [
 
-            (10, 110, "store"),
-            (115, 220, "inventory"),
-            (225, 345, "upgrades"),
-            (350, 455, "employees"),
-            (460, 570, "missions"),
-            (575, 700, "achievements"),
-            (705, 830, "decor"),
-            (835, 960, "stats"),
+            (
+                10,
+                110,
+                "store"
+            ),
+
+            (
+                115,
+                220,
+                "inventory"
+            ),
+
+            (
+                225,
+                345,
+                "upgrades"
+            ),
+
+            (
+                350,
+                455,
+                "employees"
+            ),
+
+            (
+                460,
+                570,
+                "missions"
+            ),
+
+            (
+                575,
+                700,
+                "achievements"
+            ),
+
+            (
+                705,
+                830,
+                "decor"
+            ),
+
+            (
+                835,
+                960,
+                "stats"
+            ),
         ]
 
         for left, right, target in choices:
 
-            if left <= x <= right:
+            if (
+                left
+                <= x
+                <= right
+            ):
 
                 state = target
 
@@ -5362,174 +6252,175 @@ def handle_mouse(pos):
 
 
 # ============================================================
-# ATUALIZAÇÃO
+# ATUALIZAÇÃO DO JOGO
 # ============================================================
 
-def update_game(dt):
+def update_game(
+    dt
+):
 
     global last_spawn
 
-    # ========================================================
-    # MOVIMENTO
-    # ========================================================
+    if state != "store":
 
-    # O movimento agora é separado do restante da lógica.
-    # Isso evita que algum menu bloqueie acidentalmente
-    # o teclado.
+        return
 
-    if state == "store":
+    keys = pygame.key.get_pressed()
 
-        keys = pygame.key.get_pressed()
+    dx = 0
+    dy = 0
 
-        dx = 0
-        dy = 0
+    if (
+        keys[pygame.K_a]
+        or
+        keys[pygame.K_LEFT]
+    ):
 
-        if (
-            keys[pygame.K_a]
-            or
-            keys[pygame.K_LEFT]
-        ):
-            dx -= 1
+        dx -= 1
 
-        if (
-            keys[pygame.K_d]
-            or
-            keys[pygame.K_RIGHT]
-        ):
-            dx += 1
+    if (
+        keys[pygame.K_d]
+        or
+        keys[pygame.K_RIGHT]
+    ):
 
-        if (
-            keys[pygame.K_w]
-            or
-            keys[pygame.K_UP]
-        ):
-            dy -= 1
+        dx += 1
 
-        if (
-            keys[pygame.K_s]
-            or
-            keys[pygame.K_DOWN]
-        ):
-            dy += 1
+    if (
+        keys[pygame.K_w]
+        or
+        keys[pygame.K_UP]
+    ):
 
-        move_player(
-            dx,
-            dy,
-            dt
-        )
+        dy -= 1
 
-        # Segurança adicional.
-        if not can_walk(
-            player_x,
-            player_y
-        ):
+    if (
+        keys[pygame.K_s]
+        or
+        keys[pygame.K_DOWN]
+    ):
 
-            reset_player_position()
+        dy += 1
 
-        # ----------------------------------------------------
-        # LOJA
-        # ----------------------------------------------------
+    move_player(
+        dx,
+        dy,
+        dt
+    )
 
-        store.update_quality(dt)
+    store.update_quality(
+        dt
+    )
 
-        store.update_time(dt)
+    store.update_time(
+        dt
+    )
 
-        update_customers(dt)
+    store.ensure_checkout_slots()
 
-        # ----------------------------------------------------
-        # REPOSITOR
-        # ----------------------------------------------------
+    update_customers(
+        dt
+    )
 
-        repositor_count = store.employee_count(
+    # --------------------------------------------------------
+    # REPOSITOR
+    # --------------------------------------------------------
+
+    for _ in range(
+        store.employee_count(
             "stock"
         )
+    ):
 
-        for _ in range(repositor_count):
+        for pid in store.unlocked:
 
-            for pid in store.unlocked:
+            if (
+                store.inventory[pid]
+                < 3
+                and
+                store.money
+                >= store.buy_price(pid)
+            ):
 
-                if (
-                    store.inventory[pid] < 3
-                    and
-                    store.money >= store.buy_price(pid)
-                ):
+                cost = store.buy_price(
+                    pid
+                )
 
-                    cost = store.buy_price(pid)
+                store.money -= cost
 
-                    store.money -= cost
-                    store.inventory[pid] += 1
+                store.inventory[pid] += 1
 
-                    store.total_profit -= cost
-                    store.today_expenses += cost
+                store.total_profit -= cost
 
-                    break
+                store.today_expenses += cost
 
-        # ----------------------------------------------------
-        # FAXINEIRO
-        # ----------------------------------------------------
+                break
 
-        cleaner_count = store.employee_count(
-            "cleaner"
+    # --------------------------------------------------------
+    # FAXINEIRO
+    # --------------------------------------------------------
+
+    cleaners = store.employee_count(
+        "cleaner"
+    )
+
+    if cleaners:
+
+        store.cleanliness = min(
+            100,
+            store.cleanliness
+            + dt
+            * cleaners
+            * 0.08
         )
 
-        if cleaner_count:
+    # --------------------------------------------------------
+    # SEGURANÇA
+    # --------------------------------------------------------
 
-            store.cleanliness = min(
-                100,
-                store.cleanliness
-                + dt
-                * cleaner_count
-                * 0.08
-            )
-
-        # ----------------------------------------------------
-        # SEGURANÇA
-        # ----------------------------------------------------
-
-        if (
-            store.employee_count("security")
-            and
-            random.random() < dt * 0.02
-        ):
-
-            store.security_alerts += 1
-
-        # ----------------------------------------------------
-        # CLIENTES
-        # ----------------------------------------------------
-
-        interval = (
-            CUSTOMER_SPAWN
-            /
-            max(
-                0.45,
-                store.spawn_speed()
-            )
+    if (
+        store.employee_count(
+            "security"
         )
+        and
+        random.random()
+        < dt * 0.02
+    ):
 
-        if (
-            time.monotonic()
-            - last_spawn
-            >= interval
-        ):
+        store.security_alerts += 1
 
-            spawn_customer()
+    # --------------------------------------------------------
+    # CLIENTES
+    # --------------------------------------------------------
 
-        # ----------------------------------------------------
-        # SAVE AUTOMÁTICO
-        # ----------------------------------------------------
+    interval = (
+        CUSTOMER_SPAWN
+        /
+        max(
+            0.45,
+            store.spawn_speed()
+        )
+    )
 
-        if store.last_autosave >= 30:
+    if (
+        time.monotonic()
+        - last_spawn
+        >= interval
+    ):
 
-            save_game()
+        spawn_customer()
 
-    # ========================================================
-    # NOTIFICAÇÕES
-    # ========================================================
+    # --------------------------------------------------------
+    # AUTO SAVE
+    # --------------------------------------------------------
+
+    if store.last_autosave >= 30:
+
+        save_game()
 
 
 # ============================================================
-# DESENHO DAS TELAS
+# DESENHO
 # ============================================================
 
 def draw_current():
@@ -5589,10 +6480,7 @@ def draw_current():
 # LOOP PRINCIPAL
 # ============================================================
 
-state = "menu"
-
 last_time = time.monotonic()
-
 
 while running:
 
@@ -5605,7 +6493,9 @@ while running:
 
     last_time = now
 
-    clock.tick(FPS)
+    clock.tick(
+        FPS
+    )
 
     for event in pygame.event.get():
 
@@ -5615,7 +6505,9 @@ while running:
 
         elif event.type == pygame.KEYDOWN:
 
-            handle_key(event)
+            handle_key(
+                event
+            )
 
         elif (
             event.type == pygame.MOUSEBUTTONDOWN
@@ -5627,9 +6519,13 @@ while running:
                 event.pos
             )
 
-    update_game(dt)
+    update_game(
+        dt
+    )
 
-    update_notifications(dt)
+    update_notifications(
+        dt
+    )
 
     draw_current()
 
